@@ -7,6 +7,10 @@ const emptyState = document.querySelector("#empty-state");
 const count = document.querySelector("#checkin-count");
 const template = document.querySelector("#checkin-template");
 const refreshButton = document.querySelector("#refresh-button");
+const supabaseClient = window.supabase.createClient(
+  window.SUPABASE_URL,
+  window.SUPABASE_PUBLISHABLE_KEY,
+);
 
 document.querySelector("#today").textContent = new Intl.DateTimeFormat("zh-CN", {
   year: "numeric", month: "long", day: "numeric", weekday: "long",
@@ -43,11 +47,20 @@ function renderCheckins(checkins) {
 
 async function loadCheckins({ quiet = false } = {}) {
   try {
-    const response = await fetch("/api/checkins", { cache: "no-store" });
-    if (!response.ok) throw new Error("读取失败");
-    const payload = await response.json();
-    renderCheckins(payload.checkins);
-  } catch {
+    const { data, error } = await supabaseClient
+      .from("checkins")
+      .select("id, name, note, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+    renderCheckins(data.map((checkin) => ({
+      id: checkin.id,
+      name: checkin.name,
+      note: checkin.note,
+      createdAt: checkin.created_at,
+    })));
+  } catch (error) {
+    console.error("读取打卡记录失败", error);
     if (!quiet) {
       message.textContent = "暂时无法读取打卡记录，请稍后再试。";
       message.dataset.type = "error";
@@ -68,14 +81,12 @@ form.addEventListener("submit", async (event) => {
   message.dataset.type = "";
 
   try {
-    const response = await fetch("/api/checkins", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, note }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || "打卡失败");
-    renderCheckins(payload.checkins);
+    const { error } = await supabaseClient
+      .from("checkins")
+      .insert({ name, note });
+
+    if (error) throw error;
+    await loadCheckins({ quiet: true });
     nameInput.value = "";
     noteInput.value = "已练不欠";
     message.textContent = "打卡成功。今天这笔，算数。";
@@ -91,4 +102,15 @@ form.addEventListener("submit", async (event) => {
 
 refreshButton.addEventListener("click", () => loadCheckins());
 loadCheckins();
-setInterval(() => loadCheckins({ quiet: true }), 15000);
+
+supabaseClient
+  .channel("checkins-live")
+  .on(
+    "postgres_changes",
+    { event: "INSERT", schema: "public", table: "checkins" },
+    () => loadCheckins({ quiet: true }),
+  )
+  .subscribe();
+
+// Realtime 断线时仍能定期同步。
+setInterval(() => loadCheckins({ quiet: true }), 30000);
