@@ -18,7 +18,8 @@ document.querySelector("#today").textContent = new Intl.DateTimeFormat("zh-CN", 
 
 function formatTime(value) {
   return new Intl.DateTimeFormat("zh-CN", {
-    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).format(new Date(value));
 }
 
@@ -107,7 +108,7 @@ supabaseClient
   .channel("checkins-live")
   .on(
     "postgres_changes",
-    { event: "INSERT", schema: "public", table: "checkins" },
+    { event: "*", schema: "public", table: "checkins" },
     () => loadCheckins({ quiet: true }),
   )
   .subscribe();
